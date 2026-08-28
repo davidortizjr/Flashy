@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@theme {
+  /* Colors */
+  --color-kippo-pink: #ee1f66;
+  --color-void: #000000;
+  --color-carbon: #29292a;
+  --color-ash: #333333;
+  --color-ghost: #ffffff;
+
+  /* Type */
+  --font-mono: "Source Code Pro", "JetBrains Mono", "Fira Code", "IBM Plex Mono", monospace;
+
+  /* Radii */
+  --radius-card: 15px;
+  --radius-button: 10px;
+  --radius-icon: 50px;
+
+  /* Layout */
+  --breakpoint-3xl: 1200px;
+}
+
+@layer base {
+  * {
+    font-feature-settings: "zero" 1;
+  }
+
+  html {
+    background-color: var(--color-void);
+  }
+
+  body {
+    background-color: var(--color-void);
+    color: var(--color-ghost);
+    font-family: var(--font-mono);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background-color: var(--color-kippo-pink);
+    color: var(--color-void);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-kippo-pink);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .tracking-display {
+    letter-spacing: 0.4em;
+  }
+
+  .tracking-label {
+    letter-spacing: 0.1em;
+  }
+
+  .bg-sunset-gradient {
+    background-image: linear-gradient(to right, #ffc400, #ff33e0);
+  }
+
+  .bg-terminal-gradient {
+    background-image: linear-gradient(to right, #33beff, #33ffb8);
+  }
+
+  .text-glow {
+    text-shadow: 0 0 24px rgba(238, 31, 102, 0.45);
+  }
+}
