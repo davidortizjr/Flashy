@@ -1,0 +1,125 @@
+const { Router } = require('express')
+const multer = require('multer')
+const pool = require('../lib/db')
+const { requireAuth } = require('../middleware/auth')
+const { generateFlashcardsFromImage, generateFlashcardsFromText } = require('../lib/gemini')
+
+const router = Router()
+router.use(requireAuth)
+
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    fileFilter: (req, file, cb) => {
+        const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'text/plain']
+        if (allowed.includes(file.mimetype)) return cb(null, true)
+        cb(new Error('Unsupported file type. Upload a photo (jpg/png/webp) or a .txt file.'))
+    },
+})
+
+const toPublicDeck = (row) => ({
+    id: row.id,
+    title: row.title,
+    source: row.source,
+    cardCount: Number(row.card_count ?? 0),
+    createdAt: row.created_at,
+})
+
+const toPublicCard = (row) => ({ id: row.id, front: row.front, back: row.back })
+
+router.post('/import', upload.single('file'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'Attach a photo or a text file to import.' })
+    }
+
+    let generated
+    try {
+        if (req.file.mimetype === 'text/plain') {
+            const text = req.file.buffer.toString('utf8').trim()
+            if (!text) return res.status(400).json({ error: 'That file looks empty.' })
+            generated = await generateFlashcardsFromText(text)
+        } else {
+            generated = await generateFlashcardsFromImage(req.file.buffer.toString('base64'), req.file.mimetype)
+        }
+    } catch (err) {
+        console.error('Flashcard generation failed:', err)
+        return res.status(502).json({ error: 'Could not generate flashcards from that. Try a clearer photo.' })
+    }
+
+    const cards = Array.isArray(generated?.cards) ? generated.cards.filter((c) => c?.front && c?.back) : []
+    if (cards.length === 0) {
+        return res.status(422).json({ error: 'No readable study material was found in that import.' })
+    }
+
+    const title = (req.body.title || generated.title || 'Untitled deck').toString().slice(0, 120)
+    const source = req.file.mimetype === 'text/plain' ? 'text' : 'photo'
+
+    const client = await pool.connect()
+    try {
+        await client.query('BEGIN')
+        const { rows: deckRows } = await client.query(
+            `INSERT INTO decks (user_id, title, source) VALUES ($1, $2, $3) RETURNING *`,
+            [req.userId, title, source],
+        )
+        const deck = deckRows[0]
+
+        const insertedCards = []
+        for (let i = 0; i < cards.length; i++) {
+            const { rows } = await client.query(
+                `INSERT INTO cards (deck_id, position, front, back) VALUES ($1, $2, $3, $4) RETURNING *`,
+                [deck.id, i, String(cards[i].front).slice(0, 500), String(cards[i].back).slice(0, 1000)],
+            )
+            insertedCards.push(rows[0])
+        }
+
+        await client.query('COMMIT')
+        res.status(201).json({
+            deck: toPublicDeck({ ...deck, card_count: insertedCards.length }),
+            cards: insertedCards.map(toPublicCard),
+        })
+    } catch (err) {
+        await client.query('ROLLBACK')
+        throw err
+    } finally {
+        client.release()
+    }
+})
+
+router.get('/', async (req, res) => {
+    const { rows } = await pool.query(
+        `SELECT d.*, COUNT(c.id) AS card_count
+     FROM decks d
+     LEFT JOIN cards c ON c.deck_id = d.id
+     WHERE d.user_id = $1
+     GROUP BY d.id
+     ORDER BY d.created_at DESC`,
+        [req.userId],
+    )
+    res.json({ decks: rows.map(toPublicDeck) })
+})
+
+router.get('/:id', async (req, res) => {
+    const { rows: deckRows } = await pool.query('SELECT * FROM decks WHERE id = $1 AND user_id = $2', [
+        req.params.id,
+        req.userId,
+    ])
+    const deck = deckRows[0]
+    if (!deck) return res.status(404).json({ error: 'Deck not found.' })
+
+    const { rows: cardRows } = await pool.query(
+        'SELECT * FROM cards WHERE deck_id = $1 ORDER BY position ASC',
+        [deck.id],
+    )
+    res.json({ deck: toPublicDeck({ ...deck, card_count: cardRows.length }), cards: cardRows.map(toPublicCard) })
+})
+
+router.delete('/:id', async (req, res) => {
+    const { rowCount } = await pool.query('DELETE FROM decks WHERE id = $1 AND user_id = $2', [
+        req.params.id,
+        req.userId,
+    ])
+    if (rowCount === 0) return res.status(404).json({ error: 'Deck not found.' })
+    res.status(204).end()
+})
+
+module.exports = router

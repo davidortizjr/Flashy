@@ -5,6 +5,8 @@ import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
 import SignupPage from './pages/SignupPage'
 import DashboardPage from './pages/DashboardPage'
+import ImportPage from './pages/ImportPage'
+import DeckPage from './pages/DeckPage'
 
 function App() {
   return (
@@ -19,6 +21,22 @@ function App() {
             element={
               <ProtectedRoute>
                 <DashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/import"
+            element={
+              <ProtectedRoute>
+                <ImportPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/decks/:id"
+            element={
+              <ProtectedRoute>
+                <DeckPage />
               </ProtectedRoute>
             }
           />

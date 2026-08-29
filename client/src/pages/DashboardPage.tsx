@@ -1,12 +1,21 @@
+import { useEffect, useState } from 'react'
 import Logo from '../components/Logo'
 import Button from '../components/Button'
 import Card from '../components/Card'
 import { useAuth } from '../context/useAuth'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { listDecks, type Deck } from '../lib/api'
 
 export default function DashboardPage() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const [decks, setDecks] = useState<Deck[]>([])
+
+  useEffect(() => {
+    listDecks()
+      .then((data) => setDecks(data.decks))
+      .catch(() => setDecks([]))
+  }, [])
 
   const handleLogout = async () => {
     await logout()
@@ -44,21 +53,37 @@ export default function DashboardPage() {
               Import your first notes
             </h2>
             <p className="mt-[10px] font-mono text-[12px] leading-[1.67] text-ghost/60">
-              Snap a photo or upload a file to generate your first deck. Import isn't wired up
-              yet — this is the frontend shell, ready for the backend to plug into.
+              Snap a photo or upload a file to generate your first deck.
             </p>
-            <Button variant="primary" className="mt-[20px]" disabled>
+            <Button variant="primary" className="mt-[20px]" onClick={() => navigate('/import')}>
               Import notes
             </Button>
           </Card>
 
-          <Card fill="carbon" className="flex flex-col items-start justify-center">
+          <Card fill="carbon" className="flex flex-col items-start">
             <span className="font-mono text-[10px] font-bold uppercase tracking-label text-ghost/40">
               MY DECKS
             </span>
-            <p className="mt-[15px] font-mono text-[12px] leading-[1.67] text-ghost/50">
-              No decks yet. Once notes are imported, they'll show up here.
-            </p>
+            {decks.length === 0 ? (
+              <p className="mt-[15px] font-mono text-[12px] leading-[1.67] text-ghost/50">
+                No decks yet. Once notes are imported, they'll show up here.
+              </p>
+            ) : (
+              <div className="mt-[15px] w-full flex flex-col gap-[10px]">
+                {decks.map((deck) => (
+                  <Link
+                    key={deck.id}
+                    to={`/decks/${deck.id}`}
+                    className="flex items-center justify-between border border-ash rounded-button px-[15px] py-[10px] hover:border-kippo-pink transition-colors duration-150"
+                  >
+                    <span className="font-mono text-[12px] text-ghost">{deck.title}</span>
+                    <span className="font-mono text-[10px] uppercase tracking-label text-ghost/40">
+                      {deck.cardCount} card{deck.cardCount === 1 ? '' : 's'}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
           </Card>
         </div>
       </main>
