@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
 import Button from '../components/Button'
 import Card from '../components/Card'
-import { importDeck, type FlashyCard, type Deck } from '../lib/api'
+import { importDeck, ApiError, type FlashyCard, type Deck } from '../lib/api'
 
 export default function ImportPage() {
   const navigate = useNavigate()
@@ -14,11 +14,15 @@ export default function ImportPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<{ deck: Deck; cards: FlashyCard[] } | null>(null)
+  const [quotaExceeded, setQuotaExceeded] = useState(false)
+  const [result, setResult] = useState<
+    { deck: Deck; cards: FlashyCard[]; requestedCount: number; truncated: boolean } | null
+  >(null)
 
   const handlePick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = e.target.files?.[0] ?? null
     setError(null)
+    setQuotaExceeded(false)
     setResult(null)
     setFile(picked)
     setPreviewUrl((old) => {
@@ -31,6 +35,7 @@ export default function ImportPage() {
   const handleSubmit = async () => {
     if (!file) return
     setError(null)
+    setQuotaExceeded(false)
     setIsSubmitting(true)
     try {
       const data = await importDeck(file)
@@ -41,7 +46,12 @@ export default function ImportPage() {
         return null
       })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong. Try again.')
+      if (err instanceof ApiError && err.code === 'quota_exceeded') {
+        setError(err.message)
+        setQuotaExceeded(true)
+      } else {
+        setError(err instanceof Error ? err.message : 'Something went wrong. Try again.')
+      }
     } finally {
       setIsSubmitting(false)
     }
@@ -86,6 +96,14 @@ export default function ImportPage() {
               <p className="mt-[10px] font-mono text-[12px] text-ghost/60">
                 {result.cards.length} card{result.cards.length === 1 ? '' : 's'} generated.
               </p>
+
+              {result.truncated && (
+                <p className="mt-[10px] font-mono text-[12px] text-kippo-pink">
+                  Flashy found {result.requestedCount} cards but could only save{' '}
+                  {result.cards.length} — you're out of room on your current plan.
+                </p>
+              )}
+
               <div className="mt-[20px] flex gap-[10px]">
                 <Button variant="primary" onClick={() => navigate(`/decks/${result.deck.id}`)}>
                   View deck
@@ -93,6 +111,11 @@ export default function ImportPage() {
                 <Button variant="ghost" onClick={reset}>
                   Import another
                 </Button>
+                {result.truncated && (
+                  <Link to="/pricing">
+                    <Button variant="ghost">View pricing</Button>
+                  </Link>
+                )}
               </div>
             </Card>
 
@@ -182,9 +205,16 @@ export default function ImportPage() {
             )}
 
             {error && (
-              <p role="alert" className="mt-[15px] font-mono text-[12px] text-kippo-pink">
-                {error}
-              </p>
+              <div className="mt-[15px] flex flex-col items-start gap-[10px]">
+                <p role="alert" className="font-mono text-[12px] text-kippo-pink">
+                  {error}
+                </p>
+                {quotaExceeded && (
+                  <Link to="/pricing">
+                    <Button variant="ghost">View pricing</Button>
+                  </Link>
+                )}
+              </div>
             )}
           </Card>
         )}

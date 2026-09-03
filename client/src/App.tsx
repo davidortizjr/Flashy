@@ -7,6 +7,7 @@ import SignupPage from './pages/SignupPage'
 import DashboardPage from './pages/DashboardPage'
 import ImportPage from './pages/ImportPage'
 import DeckPage from './pages/DeckPage'
+import PricingPage from './pages/PricingPage'
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          <Route path="/pricing" element={<PricingPage />} />
           <Route
             path="/dashboard"
             element={

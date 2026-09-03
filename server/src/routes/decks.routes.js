@@ -3,6 +3,7 @@ const multer = require('multer')
 const pool = require('../lib/db')
 const { requireAuth } = require('../middleware/auth')
 const { generateFlashcardsFromImage, generateFlashcardsFromText } = require('../lib/gemini')
+const { attachQuota } = require('../middleware/quota')
 
 const router = Router()
 router.use(requireAuth)
@@ -27,7 +28,7 @@ const toPublicDeck = (row) => ({
 
 const toPublicCard = (row) => ({ id: row.id, front: row.front, back: row.back })
 
-router.post('/import', upload.single('file'), async (req, res) => {
+router.post('/import', attachQuota, upload.single('file'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'Attach a photo or a text file to import.' })
     }
@@ -46,10 +47,19 @@ router.post('/import', upload.single('file'), async (req, res) => {
         return res.status(502).json({ error: 'Could not generate flashcards from that. Try a clearer photo.' })
     }
 
-    const cards = Array.isArray(generated?.cards) ? generated.cards.filter((c) => c?.front && c?.back) : []
-    if (cards.length === 0) {
+    const generatedCards = Array.isArray(generated?.cards)
+        ? generated.cards.filter((c) => c?.front && c?.back)
+        : []
+    if (generatedCards.length === 0) {
         return res.status(422).json({ error: 'No readable study material was found in that import.' })
     }
+
+    // Trim to whatever's left on their plan (Infinity for unlimited plans).
+    // attachQuota already rejected the request before we spent a Gemini call
+    // if remaining was 0, so this only fires when a generation produced more
+    // cards than the user has room left for.
+    const cards =
+        req.quota.remaining === Infinity ? generatedCards : generatedCards.slice(0, req.quota.remaining)
 
     const title = (req.body.title || generated.title || 'Untitled deck').toString().slice(0, 120)
     const source = req.file.mimetype === 'text/plain' ? 'text' : 'photo'
@@ -72,10 +82,19 @@ router.post('/import', upload.single('file'), async (req, res) => {
             insertedCards.push(rows[0])
         }
 
+        if (insertedCards.length > 0) {
+            await client.query('UPDATE users SET card_count_period = card_count_period + $1 WHERE id = $2', [
+                insertedCards.length,
+                req.userId,
+            ])
+        }
+
         await client.query('COMMIT')
         res.status(201).json({
             deck: toPublicDeck({ ...deck, card_count: insertedCards.length }),
             cards: insertedCards.map(toPublicCard),
+            requestedCount: generatedCards.length,
+            truncated: insertedCards.length < generatedCards.length,
         })
     } catch (err) {
         await client.query('ROLLBACK')
