@@ -88,8 +88,6 @@ router.post('/checkout', async (req, res) => {
 })
 
 // GET /api/billing/status/:paymentIntentId — polled by the frontend while
-// the QR is on screen. Falls back to asking PayMongo directly in case the
-// webhook hasn't arrived yet (e.g. testing without a public URL).
 router.get('/status/:paymentIntentId', async (req, res) => {
     const { paymentIntentId } = req.params
     const { rows } = await pool.query(
