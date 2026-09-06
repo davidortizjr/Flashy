@@ -156,7 +156,7 @@ export default function ImportPage() {
               {!result.truncated && result.cards.length < LOW_CARD_WARNING_THRESHOLD && (
                 <p className="mt-[10px] font-mono text-[12px] text-ghost/50">
                   Flashy only found {result.cards.length} card{result.cards.length === 1 ? '' : 's'} worth
-                  making — a clearer or better-lit photo usually finds more.
+                  making — a clearer file with more study material usually finds more.
                 </p>
               )}
 
@@ -196,8 +196,8 @@ export default function ImportPage() {
               GET STARTED
             </span>
             <p className="mt-[10px] font-mono text-[12px] leading-[1.67] text-ghost/60">
-              Snap a photo of a notebook page, textbook, or slide, or upload a text file. Flashy
-              reads it and builds a deck of flashcards.
+              Snap a photo of a notebook page, textbook, or slide, or upload a PDF or text file.
+              Flashy reads it and builds a deck of flashcards.
             </p>
 
             <input
@@ -211,7 +211,7 @@ export default function ImportPage() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*,.txt,text/plain"
+              accept="image/*,.pdf,application/pdf,.txt,text/plain"
               className="hidden"
               onChange={handlePick}
             />

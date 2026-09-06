@@ -2,7 +2,7 @@ const { Router } = require('express')
 const multer = require('multer')
 const pool = require('../lib/db')
 const { requireAuth } = require('../middleware/auth')
-const { generateFlashcardsFromImage, generateFlashcardsFromText } = require('../lib/gemini')
+const { generateFlashcardsFromFile, generateFlashcardsFromText } = require('../lib/gemini')
 const { attachQuota } = require('../middleware/quota')
 
 const router = Router()
@@ -12,9 +12,17 @@ const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
     fileFilter: (req, file, cb) => {
-        const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'text/plain']
+        const allowed = [
+            'image/jpeg',
+            'image/png',
+            'image/webp',
+            'image/heic',
+            'image/heif',
+            'application/pdf',
+            'text/plain',
+        ]
         if (allowed.includes(file.mimetype)) return cb(null, true)
-        cb(new Error('Unsupported file type. Upload a photo (jpg/png/webp) or a .txt file.'))
+        cb(new Error('Unsupported file type. Upload a photo (jpg/png/webp), a PDF, or a .txt file.'))
     },
 })
 
@@ -40,7 +48,7 @@ router.post('/import', attachQuota, upload.single('file'), async (req, res) => {
             if (!text) return res.status(400).json({ error: 'That file looks empty.' })
             generated = await generateFlashcardsFromText(text)
         } else {
-            generated = await generateFlashcardsFromImage(req.file.buffer.toString('base64'), req.file.mimetype)
+            generated = await generateFlashcardsFromFile(req.file.buffer.toString('base64'), req.file.mimetype)
         }
     } catch (err) {
         console.error('Flashcard generation failed:', err)
@@ -62,7 +70,8 @@ router.post('/import', attachQuota, upload.single('file'), async (req, res) => {
         req.quota.remaining === Infinity ? generatedCards : generatedCards.slice(0, req.quota.remaining)
 
     const title = (req.body.title || generated.title || 'Untitled deck').toString().slice(0, 120)
-    const source = req.file.mimetype === 'text/plain' ? 'text' : 'photo'
+    const source =
+        req.file.mimetype === 'text/plain' ? 'text' : req.file.mimetype === 'application/pdf' ? 'pdf' : 'photo'
 
     const client = await pool.connect()
     try {

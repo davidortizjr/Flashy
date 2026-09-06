@@ -7,7 +7,7 @@ const ai = new GoogleGenAI({
 const MODEL = 'gemini-3.6-flash'
 
 const SYSTEM_PROMPT = `You are Flashy, a tool that turns a student's notes into flashcards.
-You will be given either a photo of a page (notebook, textbook, slide) or raw pasted text.
+You will be given a photo of a page (notebook, textbook, slide), a PDF document, or raw pasted text.
 Read the content and produce a set of high quality flashcards covering the key terms, definitions,
 formulas, dates, or concepts a student would need to study.
 
@@ -16,8 +16,9 @@ Rules:
 - Shape: { "title": string, "cards": [{ "front": string, "back": string }, ...] }
 - "title" is a short (2-6 word) title for the deck based on the subject matter.
 - Each "front" is a short question, term, or prompt. Each "back" is the concise answer or definition.
-- Produce between 5 and 25 cards depending on how much material is present.
-- If the image is blurry, empty, or has no readable study material, return { "title": "", "cards": [] }.
+- Produce between 5 and 25 cards depending on how much material is present. For a multi-page PDF,
+  draw cards from across the whole document rather than just the first page.
+- If the file is blurry, empty, or has no readable study material, return { "title": "", "cards": [] }.
 - Never invent facts that aren't supported by the source material.`
 
 function parseResponse(response) {
@@ -35,19 +36,21 @@ function parseResponse(response) {
     }
 }
 
-async function generateFlashcardsFromImage(base64Image, mediaType) {
+// Gemini accepts images and PDFs the same way via inlineData — the model
+// reads a PDF's pages directly, no separate extraction step needed.
+async function generateFlashcardsFromFile(base64Data, mediaType) {
     const response = await ai.models.generateContent({
         model: MODEL,
 
         contents: [
             {
                 inlineData: {
-                    data: base64Image,
+                    data: base64Data,
                     mimeType: mediaType,
                 },
             },
             {
-                text: 'Turn the notes in this photo into flashcards, following the JSON format described in your instructions.',
+                text: 'Turn the notes in this file into flashcards, following the JSON format described in your instructions.',
             },
         ],
 
@@ -80,6 +83,6 @@ ${text}
 }
 
 module.exports = {
-    generateFlashcardsFromImage,
+    generateFlashcardsFromFile,
     generateFlashcardsFromText,
 }
