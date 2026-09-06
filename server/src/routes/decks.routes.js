@@ -2,15 +2,17 @@ const { Router } = require('express')
 const multer = require('multer')
 const pool = require('../lib/db')
 const { requireAuth } = require('../middleware/auth')
-const { generateFlashcardsFromFile, generateFlashcardsFromText } = require('../lib/gemini')
+const { generateFlashcardsFromFiles, generateFlashcardsFromText } = require('../lib/gemini')
 const { attachQuota } = require('../middleware/quota')
 
 const router = Router()
 router.use(requireAuth)
 
+const MAX_FILES = 8
+
 const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    limits: { fileSize: 10 * 1024 * 1024, files: MAX_FILES }, // 10MB each
     fileFilter: (req, file, cb) => {
         const allowed = [
             'image/jpeg',
@@ -22,7 +24,7 @@ const upload = multer({
             'text/plain',
         ]
         if (allowed.includes(file.mimetype)) return cb(null, true)
-        cb(new Error('Unsupported file type. Upload a photo (jpg/png/webp), a PDF, or a .txt file.'))
+        cb(new Error('Unsupported file type. Upload photos (jpg/png/webp), a PDF, or a .txt file.'))
     },
 })
 
@@ -36,19 +38,29 @@ const toPublicDeck = (row) => ({
 
 const toPublicCard = (row) => ({ id: row.id, front: row.front, back: row.back })
 
-router.post('/import', attachQuota, upload.single('file'), async (req, res) => {
-    if (!req.file) {
-        return res.status(400).json({ error: 'Attach a photo or a text file to import.' })
+router.post('/import', attachQuota, upload.array('files', MAX_FILES), async (req, res) => {
+    const files = req.files || []
+    if (files.length === 0) {
+        return res.status(400).json({ error: 'Attach one or more photos, a PDF, or a text file to import.' })
+    }
+
+    const isImage = (f) => f.mimetype.startsWith('image/')
+    if (files.length > 1 && !files.every(isImage)) {
+        return res.status(400).json({
+            error: 'You can upload several photos together, but a PDF or text file has to be imported on its own.',
+        })
     }
 
     let generated
     try {
-        if (req.file.mimetype === 'text/plain') {
-            const text = req.file.buffer.toString('utf8').trim()
+        if (files.length === 1 && files[0].mimetype === 'text/plain') {
+            const text = files[0].buffer.toString('utf8').trim()
             if (!text) return res.status(400).json({ error: 'That file looks empty.' })
             generated = await generateFlashcardsFromText(text)
         } else {
-            generated = await generateFlashcardsFromFile(req.file.buffer.toString('base64'), req.file.mimetype)
+            generated = await generateFlashcardsFromFiles(
+                files.map((f) => ({ data: f.buffer.toString('base64'), mimeType: f.mimetype })),
+            )
         }
     } catch (err) {
         console.error('Flashcard generation failed:', err)
@@ -71,7 +83,11 @@ router.post('/import', attachQuota, upload.single('file'), async (req, res) => {
 
     const title = (req.body.title || generated.title || 'Untitled deck').toString().slice(0, 120)
     const source =
-        req.file.mimetype === 'text/plain' ? 'text' : req.file.mimetype === 'application/pdf' ? 'pdf' : 'photo'
+        files.length === 1 && files[0].mimetype === 'text/plain'
+            ? 'text'
+            : files.length === 1 && files[0].mimetype === 'application/pdf'
+              ? 'pdf'
+              : 'photo'
 
     const client = await pool.connect()
     try {

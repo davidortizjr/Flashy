@@ -1,3 +1,9 @@
+// Strips any trailing slash(es) so the request() below can safely join
+// `${API_URL}/api${path}` without ever producing a double slash — which
+// browsers read as protocol-relative (i.e. "//api" gets treated as a
+// hostname called "api" and fails with ERR_NAME_NOT_RESOLVED). Handles
+// VITE_API_URL being unset (falls back to local dev), '', '/', or a full
+// origin with or without a trailing slash.
 const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:4000').trim().replace(/\/+$/, '')
 
 export interface FlashyUser {
@@ -68,9 +74,9 @@ export const logout = () => request<void>('/auth/logout', { method: 'POST' })
 
 export const fetchMe = () => request<{ user: FlashyUser }>('/auth/me')
 
-export const importDeck = (file: File) => {
+export const importDeck = (files: File[]) => {
     const formData = new FormData()
-    formData.append('file', file)
+    files.forEach((file) => formData.append('files', file))
     return request<{ deck: Deck; cards: FlashyCard[]; requestedCount: number; truncated: boolean }>(
         '/decks/import',
         {

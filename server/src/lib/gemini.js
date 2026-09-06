@@ -7,18 +7,18 @@ const ai = new GoogleGenAI({
 const MODEL = 'gemini-3.6-flash'
 
 const SYSTEM_PROMPT = `You are Flashy, a tool that turns a student's notes into flashcards.
-You will be given a photo of a page (notebook, textbook, slide), a PDF document, or raw pasted text.
-Read the content and produce a set of high quality flashcards covering the key terms, definitions,
-formulas, dates, or concepts a student would need to study.
+You will be given one or more photos of pages (notebook, textbook, slide), a PDF document, or raw
+pasted text. Read the content and produce a set of high quality flashcards covering the key terms,
+definitions, formulas, dates, or concepts a student would need to study.
 
 Rules:
 - Return ONLY valid JSON, no prose, no markdown code fences.
 - Shape: { "title": string, "cards": [{ "front": string, "back": string }, ...] }
 - "title" is a short (2-6 word) title for the deck based on the subject matter.
 - Each "front" is a short question, term, or prompt. Each "back" is the concise answer or definition.
-- Produce between 5 and 25 cards depending on how much material is present. For a multi-page PDF,
-  draw cards from across the whole document rather than just the first page.
-- If the file is blurry, empty, or has no readable study material, return { "title": "", "cards": [] }.
+- Produce between 5 and 25 cards depending on how much material is present. For a multi-page PDF or
+  multiple photos, draw cards from across all of the pages, not just the first.
+- If the material is blurry, empty, or has no readable study content, return { "title": "", "cards": [] }.
 - Never invent facts that aren't supported by the source material.`
 
 function parseResponse(response) {
@@ -37,23 +37,20 @@ function parseResponse(response) {
 }
 
 // Gemini accepts images and PDFs the same way via inlineData — the model
-// reads a PDF's pages directly, no separate extraction step needed.
-async function generateFlashcardsFromFile(base64Data, mediaType) {
+// reads a PDF's pages directly, no separate extraction step needed. `files`
+// is an array of { data: base64String, mimeType: string }; passing several
+// image parts in one call lets Gemini treat them as one combined document
+// (e.g. several photos of consecutive notebook pages).
+async function generateFlashcardsFromFiles(files) {
+    const parts = files.map((f) => ({ inlineData: { data: f.data, mimeType: f.mimeType } }))
+    const instruction =
+        files.length > 1
+            ? `Turn the notes across these ${files.length} photos into one combined set of flashcards, following the JSON format described in your instructions.`
+            : 'Turn the notes in this file into flashcards, following the JSON format described in your instructions.'
+
     const response = await ai.models.generateContent({
         model: MODEL,
-
-        contents: [
-            {
-                inlineData: {
-                    data: base64Data,
-                    mimeType: mediaType,
-                },
-            },
-            {
-                text: 'Turn the notes in this file into flashcards, following the JSON format described in your instructions.',
-            },
-        ],
-
+        contents: [...parts, { text: instruction }],
         config: {
             systemInstruction: SYSTEM_PROMPT,
             responseMimeType: 'application/json',
@@ -83,6 +80,6 @@ ${text}
 }
 
 module.exports = {
-    generateFlashcardsFromFile,
+    generateFlashcardsFromFiles,
     generateFlashcardsFromText,
 }

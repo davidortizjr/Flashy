@@ -4,16 +4,22 @@ import Logo from '../components/Logo'
 import Button from '../components/Button'
 import Card from '../components/Card'
 import { importDeck, renameDeck, ApiError, type FlashyCard, type Deck } from '../lib/api'
+import { compressImages } from '../lib/imageCompression'
 
 const LOW_CARD_WARNING_THRESHOLD = 3
+const MAX_FILES = 8
+
+interface PickedFile {
+  file: File
+  previewUrl: string | null
+}
 
 export default function ImportPage() {
   const navigate = useNavigate()
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [file, setFile] = useState<File | null>(null)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [files, setFiles] = useState<PickedFile[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [quotaExceeded, setQuotaExceeded] = useState(false)
@@ -24,32 +30,60 @@ export default function ImportPage() {
   const [titleDraft, setTitleDraft] = useState('')
   const [savingTitle, setSavingTitle] = useState(false)
 
-  const handlePick = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const picked = e.target.files?.[0] ?? null
+  const nonImageCount = files.filter((f) => !f.file.type.startsWith('image/')).length
+  const mixedTypeError =
+    files.length > 1 && nonImageCount > 0
+      ? 'Multiple files must all be photos — import a PDF or text file on its own.'
+      : null
+
+  const addFiles = (picked: File[]) => {
     setError(null)
     setQuotaExceeded(false)
     setResult(null)
-    setFile(picked)
-    setPreviewUrl((old) => {
-      if (old) URL.revokeObjectURL(old)
-      return picked && picked.type.startsWith('image/') ? URL.createObjectURL(picked) : null
+    setFiles((current) => {
+      const combined = [...current, ...picked.map((file) => ({ file, previewUrl: null as string | null }))]
+      const trimmed = combined.slice(0, MAX_FILES)
+      return trimmed.map((f) => ({
+        ...f,
+        previewUrl: f.previewUrl ?? (f.file.type.startsWith('image/') ? URL.createObjectURL(f.file) : null),
+      }))
     })
+  }
+
+  const handlePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files ?? [])
+    if (picked.length) addFiles(picked)
     e.target.value = ''
   }
 
+  const removeFile = (index: number) => {
+    setFiles((current) => {
+      const removed = current[index]
+      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl)
+      return current.filter((_, i) => i !== index)
+    })
+  }
+
+  const clearFiles = () => {
+    setFiles((current) => {
+      current.forEach((f) => f.previewUrl && URL.revokeObjectURL(f.previewUrl))
+      return []
+    })
+  }
+
   const handleSubmit = async () => {
-    if (!file) return
+    if (files.length === 0 || mixedTypeError) return
     setError(null)
     setQuotaExceeded(false)
     setIsSubmitting(true)
     try {
-      const data = await importDeck(file)
+      const rawFiles = files.map((f) => f.file)
+      const uploadFiles = rawFiles.every((f) => f.type.startsWith('image/'))
+        ? await compressImages(rawFiles)
+        : rawFiles
+      const data = await importDeck(uploadFiles)
       setResult(data)
-      setFile(null)
-      setPreviewUrl((old) => {
-        if (old) URL.revokeObjectURL(old)
-        return null
-      })
+      clearFiles()
     } catch (err) {
       if (err instanceof ApiError && err.code === 'quota_exceeded') {
         setError(err.message)
@@ -83,11 +117,7 @@ export default function ImportPage() {
   }
 
   const reset = () => {
-    setFile(null)
-    setPreviewUrl((old) => {
-      if (old) URL.revokeObjectURL(old)
-      return null
-    })
+    clearFiles()
     setResult(null)
     setError(null)
   }
@@ -196,8 +226,8 @@ export default function ImportPage() {
               GET STARTED
             </span>
             <p className="mt-[10px] font-mono text-[12px] leading-[1.67] text-ghost/60">
-              Snap a photo of a notebook page, textbook, or slide, or upload a PDF or text file.
-              Flashy reads it and builds a deck of flashcards.
+              Snap one or more photos of your notes, or upload a PDF or text file. Photos can be
+              added one at a time or several at once — Flashy reads them as one set of notes.
             </p>
 
             <input
@@ -212,48 +242,76 @@ export default function ImportPage() {
               ref={fileInputRef}
               type="file"
               accept="image/*,.pdf,application/pdf,.txt,text/plain"
+              multiple
               className="hidden"
               onChange={handlePick}
             />
 
             <div className="mt-[20px] flex flex-wrap gap-[10px]">
-              <Button variant="primary" onClick={() => cameraInputRef.current?.click()}>
+              <Button
+                variant="primary"
+                onClick={() => cameraInputRef.current?.click()}
+                disabled={files.length >= MAX_FILES}
+              >
                 Take a photo
               </Button>
-              <Button variant="ghost" onClick={() => fileInputRef.current?.click()}>
-                Upload a file
+              <Button
+                variant="ghost"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={files.length >= MAX_FILES}
+              >
+                Upload files
               </Button>
             </div>
 
-            {file && (
+            {files.length > 0 && (
               <div className="mt-[25px] w-full">
                 <div className="flex items-center justify-between">
                   <span className="font-mono text-[10px] uppercase tracking-label text-ghost/40">
-                    Selected
+                    Selected ({files.length}/{MAX_FILES})
                   </span>
                   <button
-                    onClick={reset}
+                    onClick={clearFiles}
                     className="font-mono text-[10px] uppercase tracking-label text-ghost/40 hover:text-kippo-pink"
                   >
-                    Clear
+                    Clear all
                   </button>
                 </div>
 
-                {previewUrl ? (
-                  <img
-                    src={previewUrl}
-                    alt="Selected notes"
-                    className="mt-[10px] w-full max-h-[320px] object-contain rounded-button border border-ash"
-                  />
-                ) : (
-                  <p className="mt-[10px] font-mono text-[12px] text-ghost/70">{file.name}</p>
+                <div className="mt-[10px] grid grid-cols-3 sm:grid-cols-4 gap-[10px]">
+                  {files.map((f, i) => (
+                    <div
+                      key={i}
+                      className="relative aspect-square border border-ash rounded-button overflow-hidden bg-carbon"
+                    >
+                      {f.previewUrl ? (
+                        <img src={f.previewUrl} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center px-[6px]">
+                          <span className="font-mono text-[9px] text-ghost/60 text-center break-all">
+                            {f.file.name}
+                          </span>
+                        </div>
+                      )}
+                      <button
+                        onClick={() => removeFile(i)}
+                        className="absolute top-[4px] right-[4px] w-[20px] h-[20px] rounded-full bg-void/80 border border-ghost/40 text-ghost text-[12px] leading-none flex items-center justify-center hover:border-kippo-pink hover:text-kippo-pink"
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {mixedTypeError && (
+                  <p className="mt-[10px] font-mono text-[12px] text-kippo-pink">{mixedTypeError}</p>
                 )}
 
                 <Button
                   variant="primary"
                   className="mt-[20px] w-full"
                   onClick={handleSubmit}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !!mixedTypeError}
                 >
                   {isSubmitting ? 'Reading your notes…' : 'Generate flashcards'}
                 </Button>
