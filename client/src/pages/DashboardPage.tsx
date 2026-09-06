@@ -6,20 +6,45 @@ import { useAuth } from '../context/useAuth'
 import { Link, useNavigate } from 'react-router-dom'
 import { listDecks, getPlanInfo, type Deck, type PlanInfo } from '../lib/api'
 
+type FetchState = 'loading' | 'ready' | 'error'
+
 export default function DashboardPage() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [decks, setDecks] = useState<Deck[]>([])
+  const [decksState, setDecksState] = useState<FetchState>('loading')
+  const [decksReloadToken, setDecksReloadToken] = useState(0)
   const [plan, setPlan] = useState<PlanInfo | null>(null)
+  const [planState, setPlanState] = useState<FetchState>('loading')
+  const [planReloadToken, setPlanReloadToken] = useState(0)
 
   useEffect(() => {
     listDecks()
-      .then((data) => setDecks(data.decks))
-      .catch(() => setDecks([]))
+      .then((data) => {
+        setDecks(data.decks)
+        setDecksState('ready')
+      })
+      .catch(() => setDecksState('error'))
+  }, [decksReloadToken])
+
+  useEffect(() => {
     getPlanInfo()
-      .then(setPlan)
-      .catch(() => setPlan(null))
-  }, [])
+      .then((data) => {
+        setPlan(data)
+        setPlanState('ready')
+      })
+      .catch(() => setPlanState('error'))
+  }, [planReloadToken])
+
+  const retryDecks = () => {
+    setDecksState('loading')
+    setDecksReloadToken((n) => n + 1)
+  }
+
+  const retryPlan = () => {
+    setPlanState('loading')
+    setPlanReloadToken((n) => n + 1)
+  }
 
   const usagePct =
     plan && !plan.unlimited && plan.cap ? Math.min(100, Math.round((plan.used / plan.cap) * 100)) : 0
@@ -71,11 +96,34 @@ export default function DashboardPage() {
             <span className="font-mono text-[10px] font-bold uppercase tracking-label text-ghost/40">
               MY DECKS
             </span>
-            {decks.length === 0 ? (
+
+            {decksState === 'loading' && (
+              <div className="mt-[20px] w-full flex flex-col gap-[8px]">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="h-[38px] rounded-button bg-ash/40 animate-pulse" />
+                ))}
+              </div>
+            )}
+
+            {decksState === 'error' && (
+              <div className="mt-[15px]">
+                <p className="font-mono text-[12px] text-kippo-pink">Couldn't load your decks.</p>
+                <button
+                  onClick={retryDecks}
+                  className="mt-[8px] font-mono text-[10px] uppercase tracking-label text-ghost/50 hover:text-kippo-pink"
+                >
+                  Try again
+                </button>
+              </div>
+            )}
+
+            {decksState === 'ready' && decks.length === 0 && (
               <p className="mt-[15px] font-mono text-[12px] leading-[1.67] text-ghost/50">
                 No decks yet. Once notes are imported, they'll show up here.
               </p>
-            ) : (
+            )}
+
+            {decksState === 'ready' && decks.length > 0 && (
               <div className="mt-[15px] w-full flex flex-col gap-[10px]">
                 {decks.map((deck) => (
                   <Link
@@ -98,11 +146,26 @@ export default function DashboardPage() {
               YOUR PLAN
             </span>
 
-            {!plan && (
-              <p className="mt-[15px] font-mono text-[12px] text-ghost/50">Loading&hellip;</p>
+            {planState === 'loading' && (
+              <div className="mt-[20px] w-full flex flex-col gap-[8px]">
+                <div className="h-[20px] w-1/2 rounded-button bg-ash/40 animate-pulse" />
+                <div className="h-[8px] w-full rounded-full bg-ash/40 animate-pulse" />
+              </div>
             )}
 
-            {plan && (
+            {planState === 'error' && (
+              <div className="mt-[15px]">
+                <p className="font-mono text-[12px] text-kippo-pink">Couldn't load your plan.</p>
+                <button
+                  onClick={retryPlan}
+                  className="mt-[8px] font-mono text-[10px] uppercase tracking-label text-ghost/50 hover:text-kippo-pink"
+                >
+                  Try again
+                </button>
+              </div>
+            )}
+
+            {planState === 'ready' && plan && (
               <>
                 <div className="mt-[15px] flex items-baseline gap-[8px]">
                   <span className="font-mono text-[18px] font-bold text-ghost">{plan.label}</span>

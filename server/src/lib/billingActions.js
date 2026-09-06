@@ -1,7 +1,14 @@
 const pool = require('./db')
 const { PLANS } = require('../config/plans')
 
-async function applyPaidPlan(userId, plan, paymentIntentId) {
+/**
+ * Marks a payment as paid and grants the plan. `reference` can be either the
+ * PayMongo Link's reference_number (what webhooks give us) or its link id
+ * (what our own status-polling endpoint has on hand) — the row is matched on
+ * whichever one is present. Safe to call twice for the same payment (from
+ * both the webhook and the status poll): only the first call flips anything.
+ */
+async function applyPaidPlan(userId, plan, reference) {
     const config = PLANS[plan]
     if (!config) throw new Error(`Unknown plan "${plan}"`)
 
@@ -13,16 +20,13 @@ async function applyPaidPlan(userId, plan, paymentIntentId) {
     try {
         await client.query('BEGIN')
 
-        // Only flip the payment row if it isn't already paid — this makes the
-        // whole operation safe if the webhook fires twice, or if both the
-        // webhook and the status-poll try to apply the same payment.
         const updated = await client.query(
             `UPDATE payments
                 SET status = 'paid', paid_at = now()
-              WHERE paymongo_payment_intent_id = $1
+              WHERE (reference_number = $1 OR paymongo_link_id = $1)
                 AND status != 'paid'
               RETURNING id`,
-            [paymentIntentId],
+            [reference],
         )
 
         if (updated.rowCount > 0) {
@@ -43,4 +47,15 @@ async function applyPaidPlan(userId, plan, paymentIntentId) {
     }
 }
 
-module.exports = { applyPaidPlan }
+/** Flips a still-pending payment to 'failed' so the checkout modal can stop polling. */
+async function markPaymentFailed(reference) {
+    await pool.query(
+        `UPDATE payments
+            SET status = 'failed'
+          WHERE (reference_number = $1 OR paymongo_link_id = $1)
+            AND status = 'pending'`,
+        [reference],
+    )
+}
+
+module.exports = { applyPaidPlan, markPaymentFailed }

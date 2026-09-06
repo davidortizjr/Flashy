@@ -86,6 +86,21 @@ export const fetchDeck = (id: string) => request<{ deck: Deck; cards: FlashyCard
 
 export const deleteDeck = (id: string) => request<void>(`/decks/${id}`, { method: 'DELETE' })
 
+export const renameDeck = (id: string, title: string) =>
+    request<{ deck: Deck }>(`/decks/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title }),
+    })
+
+export const updateCard = (deckId: string, cardId: string, patch: { front?: string; back?: string }) =>
+    request<{ card: FlashyCard }>(`/decks/${deckId}/cards/${cardId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+    })
+
+export const deleteCard = (deckId: string, cardId: string) =>
+    request<void>(`/decks/${deckId}/cards/${cardId}`, { method: 'DELETE' })
+
 // ---- Billing ----
 
 export type PlanId = 'free' | 'basic' | 'pro_monthly' | 'pro_yearly'
@@ -102,12 +117,11 @@ export interface PlanInfo {
 }
 
 export interface CheckoutResponse {
-    paymentIntentId: string
-    qrImage: string // data URL, render directly in <img src>
+    linkId: string
+    checkoutUrl: string // PayMongo-hosted page — open in a new tab
     amount: number
     plan: PayablePlanId
     planLabel: string
-    expiresInSeconds: number
 }
 
 export interface PaymentStatus {
@@ -122,5 +136,4 @@ export const startCheckout = (plan: PayablePlanId) =>
         body: JSON.stringify({ plan }),
     })
 
-export const getPaymentStatus = (paymentIntentId: string) =>
-    request<PaymentStatus>(`/billing/status/${paymentIntentId}`)
+export const getPaymentStatus = (linkId: string) => request<PaymentStatus>(`/billing/status/${linkId}`)

@@ -3,7 +3,9 @@ import { Link, useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
 import Button from '../components/Button'
 import Card from '../components/Card'
-import { importDeck, ApiError, type FlashyCard, type Deck } from '../lib/api'
+import { importDeck, renameDeck, ApiError, type FlashyCard, type Deck } from '../lib/api'
+
+const LOW_CARD_WARNING_THRESHOLD = 3
 
 export default function ImportPage() {
   const navigate = useNavigate()
@@ -18,6 +20,9 @@ export default function ImportPage() {
   const [result, setResult] = useState<
     { deck: Deck; cards: FlashyCard[]; requestedCount: number; truncated: boolean } | null
   >(null)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
+  const [savingTitle, setSavingTitle] = useState(false)
 
   const handlePick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = e.target.files?.[0] ?? null
@@ -57,6 +62,26 @@ export default function ImportPage() {
     }
   }
 
+  const startEditTitle = () => {
+    if (!result) return
+    setTitleDraft(result.deck.title)
+    setEditingTitle(true)
+  }
+
+  const saveTitle = async () => {
+    if (!result || !titleDraft.trim()) return
+    setSavingTitle(true)
+    try {
+      const { deck: updated } = await renameDeck(result.deck.id, titleDraft.trim())
+      setResult((r) => (r ? { ...r, deck: { ...r.deck, title: updated.title } } : r))
+      setEditingTitle(false)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not rename this deck.')
+    } finally {
+      setSavingTitle(false)
+    }
+  }
+
   const reset = () => {
     setFile(null)
     setPreviewUrl((old) => {
@@ -90,9 +115,33 @@ export default function ImportPage() {
               <span className="font-mono text-[10px] font-bold text-kippo-pink tracking-label">
                 DECK CREATED
               </span>
-              <h2 className="mt-[10px] font-mono text-[16px] font-bold uppercase tracking-label text-ghost">
-                {result.deck.title}
-              </h2>
+
+              {editingTitle ? (
+                <div className="mt-[10px] flex items-center gap-[10px]">
+                  <input
+                    autoFocus
+                    value={titleDraft}
+                    onChange={(e) => setTitleDraft(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && saveTitle()}
+                    className="flex-1 bg-transparent border border-ash focus:border-ghost rounded-button px-[12px] py-[8px] font-mono text-[14px] font-bold uppercase text-ghost outline-none"
+                  />
+                  <Button variant="primary" onClick={saveTitle} disabled={savingTitle}>
+                    Save
+                  </Button>
+                  <Button variant="ghost" onClick={() => setEditingTitle(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <h2
+                  onClick={startEditTitle}
+                  title="Click to rename"
+                  className="mt-[10px] font-mono text-[16px] font-bold uppercase tracking-label text-ghost cursor-text hover:text-kippo-pink transition-colors"
+                >
+                  {result.deck.title}
+                </h2>
+              )}
+
               <p className="mt-[10px] font-mono text-[12px] text-ghost/60">
                 {result.cards.length} card{result.cards.length === 1 ? '' : 's'} generated.
               </p>
@@ -101,6 +150,13 @@ export default function ImportPage() {
                 <p className="mt-[10px] font-mono text-[12px] text-kippo-pink">
                   Flashy found {result.requestedCount} cards but could only save{' '}
                   {result.cards.length} — you're out of room on your current plan.
+                </p>
+              )}
+
+              {!result.truncated && result.cards.length < LOW_CARD_WARNING_THRESHOLD && (
+                <p className="mt-[10px] font-mono text-[12px] text-ghost/50">
+                  Flashy only found {result.cards.length} card{result.cards.length === 1 ? '' : 's'} worth
+                  making — a clearer or better-lit photo usually finds more.
                 </p>
               )}
 

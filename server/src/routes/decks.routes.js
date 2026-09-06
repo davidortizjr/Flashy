@@ -132,12 +132,66 @@ router.get('/:id', async (req, res) => {
     res.json({ deck: toPublicDeck({ ...deck, card_count: cardRows.length }), cards: cardRows.map(toPublicCard) })
 })
 
+router.patch('/:id', async (req, res) => {
+    const title = (req.body.title || '').toString().trim().slice(0, 120)
+    if (!title) return res.status(400).json({ error: 'Title cannot be empty.' })
+
+    const { rows } = await pool.query(
+        `UPDATE decks SET title = $1 WHERE id = $2 AND user_id = $3 RETURNING *`,
+        [title, req.params.id, req.userId],
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Deck not found.' })
+
+    const { rows: cardRows } = await pool.query('SELECT id FROM cards WHERE deck_id = $1', [req.params.id])
+    res.json({ deck: toPublicDeck({ ...rows[0], card_count: cardRows.length }) })
+})
+
 router.delete('/:id', async (req, res) => {
     const { rowCount } = await pool.query('DELETE FROM decks WHERE id = $1 AND user_id = $2', [
         req.params.id,
         req.userId,
     ])
     if (rowCount === 0) return res.status(404).json({ error: 'Deck not found.' })
+    res.status(204).end()
+})
+
+// Confirms `deckId` belongs to the current user before letting them touch its cards.
+async function loadOwnedDeck(deckId, userId) {
+    const { rows } = await pool.query('SELECT id FROM decks WHERE id = $1 AND user_id = $2', [deckId, userId])
+    return rows[0] || null
+}
+
+router.patch('/:deckId/cards/:cardId', async (req, res) => {
+    const deck = await loadOwnedDeck(req.params.deckId, req.userId)
+    if (!deck) return res.status(404).json({ error: 'Deck not found.' })
+
+    const front = req.body.front !== undefined ? String(req.body.front).trim().slice(0, 500) : undefined
+    const back = req.body.back !== undefined ? String(req.body.back).trim().slice(0, 1000) : undefined
+    if (front === '' || back === '') {
+        return res.status(400).json({ error: 'Front and back cannot be empty.' })
+    }
+    if (front === undefined && back === undefined) {
+        return res.status(400).json({ error: 'Nothing to update.' })
+    }
+
+    const { rows } = await pool.query(
+        `UPDATE cards SET front = COALESCE($1, front), back = COALESCE($2, back)
+          WHERE id = $3 AND deck_id = $4 RETURNING *`,
+        [front, back, req.params.cardId, deck.id],
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Card not found.' })
+    res.json({ card: toPublicCard(rows[0]) })
+})
+
+router.delete('/:deckId/cards/:cardId', async (req, res) => {
+    const deck = await loadOwnedDeck(req.params.deckId, req.userId)
+    if (!deck) return res.status(404).json({ error: 'Deck not found.' })
+
+    const { rowCount } = await pool.query('DELETE FROM cards WHERE id = $1 AND deck_id = $2', [
+        req.params.cardId,
+        deck.id,
+    ])
+    if (rowCount === 0) return res.status(404).json({ error: 'Card not found.' })
     res.status(204).end()
 })
 

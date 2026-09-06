@@ -30,19 +30,24 @@ async function paymongoRequest(path, method, body, idempotencyKey) {
     return json
 }
 
-/** Step 1: open a Payment Intent for the given amount, allowing QR Ph. */
-async function createQrPhPaymentIntent({ amountCentavos, description, idempotencyKey }) {
+/**
+ * Create a PayMongo Payment Link. The customer is redirected to
+ * data.attributes.checkout_url — a PayMongo-hosted page that accepts GCash,
+ * Maya, cards, QR Ph, online banking, etc. all from one link. PayMongo also
+ * assigns a short data.attributes.reference_number we use to reconcile
+ * webhook events, since the underlying Payment's
+ * external_reference_number is set to this same value.
+ */
+async function createPaymentLink({ amountCentavos, description, remarks, idempotencyKey }) {
     return paymongoRequest(
-        '/payment_intents',
+        '/links',
         'POST',
         {
             data: {
                 attributes: {
                     amount: amountCentavos,
-                    currency: 'PHP',
-                    payment_method_allowed: ['qrph'],
                     description,
-                    capture_type: 'automatic',
+                    remarks,
                 },
             },
         },
@@ -50,52 +55,12 @@ async function createQrPhPaymentIntent({ amountCentavos, description, idempotenc
     )
 }
 
-/**
- * Step 2: create a QR Ph payment method. Only name/email are required (no
- * card data), so this is safe to do entirely server-side.
- */
-async function createQrPhPaymentMethod({ name, email, idempotencyKey }) {
-    return paymongoRequest(
-        '/payment_methods',
-        'POST',
-        {
-            data: {
-                attributes: {
-                    type: 'qrph',
-                    billing: { name, email },
-                },
-            },
-        },
-        idempotencyKey,
-    )
-}
-
-/**
- * Step 3: attach the payment method to the intent. The response contains
- * next_action.code.image_url — a base64 QR image the frontend renders.
- * PayMongo expires the code ~10 minutes after this call.
- */
-async function attachPaymentMethod({ paymentIntentId, paymentMethodId, idempotencyKey }) {
-    return paymongoRequest(
-        `/payment_intents/${paymentIntentId}/attach`,
-        'POST',
-        {
-            data: {
-                attributes: { payment_method: paymentMethodId },
-            },
-        },
-        idempotencyKey,
-    )
-}
-
-/** Fallback poll used by GET /api/billing/status/:id if the webhook is late. */
-async function retrievePaymentIntent(paymentIntentId) {
-    return paymongoRequest(`/payment_intents/${paymentIntentId}`, 'GET')
+/** Fallback poll used by GET /api/billing/status/:linkId if the webhook is late. */
+async function retrieveLink(linkId) {
+    return paymongoRequest(`/links/${linkId}`, 'GET')
 }
 
 module.exports = {
-    createQrPhPaymentIntent,
-    createQrPhPaymentMethod,
-    attachPaymentMethod,
-    retrievePaymentIntent,
+    createPaymentLink,
+    retrieveLink,
 }

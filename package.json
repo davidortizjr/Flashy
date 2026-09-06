@@ -1,0 +1,6 @@
+{
+  "name": "flashy",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Monorepo root for Vercel. Real dependencies live in client/package.json and server/package.json."
+}

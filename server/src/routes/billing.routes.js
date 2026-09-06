@@ -4,12 +4,7 @@ const pool = require('../lib/db')
 const { requireAuth } = require('../middleware/auth')
 const { getEffectiveUserPlan } = require('../middleware/quota')
 const { PLANS, PAYABLE_PLANS } = require('../config/plans')
-const {
-    createQrPhPaymentIntent,
-    createQrPhPaymentMethod,
-    attachPaymentMethod,
-    retrievePaymentIntent,
-} = require('../lib/paymongo')
+const { createPaymentLink, retrieveLink } = require('../lib/paymongo')
 const { applyPaidPlan } = require('../lib/billingActions')
 
 const router = Router()
@@ -31,6 +26,7 @@ router.get('/plan', async (req, res) => {
 })
 
 // POST /api/billing/checkout  { plan: 'basic' | 'pro_monthly' | 'pro_yearly' }
+// Creates a PayMongo Payment Link and hands back its hosted checkout_url.
 router.post('/checkout', async (req, res) => {
     const { plan } = req.body
     if (!PAYABLE_PLANS.includes(plan)) {
@@ -43,43 +39,31 @@ router.post('/checkout', async (req, res) => {
     if (!user) return res.status(401).json({ error: 'Not authenticated' })
 
     try {
-        const idemBase = crypto.randomUUID()
+        const idempotencyKey = crypto.randomUUID()
 
-        const intent = await createQrPhPaymentIntent({
+        const link = await createPaymentLink({
             amountCentavos: config.priceCentavos,
             description: `Flashy — ${config.label} plan`,
-            idempotencyKey: `pi-${req.userId}-${idemBase}`,
-        })
-        const paymentIntentId = intent.data.id
-
-        const method = await createQrPhPaymentMethod({
-            name: user.name,
-            email: user.email,
-            idempotencyKey: `pm-${req.userId}-${idemBase}`,
+            remarks: `user:${req.userId}`,
+            idempotencyKey: `link-${req.userId}-${idempotencyKey}`,
         })
 
-        const attached = await attachPaymentMethod({
-            paymentIntentId,
-            paymentMethodId: method.data.id,
-            idempotencyKey: `attach-${req.userId}-${idemBase}`,
-        })
-
-        const qrImage = attached.data.attributes?.next_action?.code?.image_url
-        if (!qrImage) throw new Error('PayMongo did not return a QR Ph code image')
+        const linkId = link.data.id
+        const referenceNumber = link.data.attributes.reference_number
+        const checkoutUrl = link.data.attributes.checkout_url
 
         await pool.query(
-            `INSERT INTO payments (user_id, plan, amount_centavos, currency, paymongo_payment_intent_id, status)
-             VALUES ($1, $2, $3, 'PHP', $4, 'pending')`,
-            [req.userId, plan, config.priceCentavos, paymentIntentId],
+            `INSERT INTO payments (user_id, plan, amount_centavos, currency, paymongo_link_id, reference_number, status)
+             VALUES ($1, $2, $3, 'PHP', $4, $5, 'pending')`,
+            [req.userId, plan, config.priceCentavos, linkId, referenceNumber],
         )
 
         res.json({
-            paymentIntentId,
-            qrImage, // base64 data URL — render directly in an <img src>
+            linkId,
+            checkoutUrl,
             amount: config.priceCentavos / 100,
             plan,
             planLabel: config.label,
-            expiresInSeconds: 600, // PayMongo expires QR Ph codes after ~10 min
         })
     } catch (err) {
         console.error('checkout failed', err.paymongo || err)
@@ -87,26 +71,26 @@ router.post('/checkout', async (req, res) => {
     }
 })
 
-// GET /api/billing/status/:paymentIntentId — polled by the frontend while
-router.get('/status/:paymentIntentId', async (req, res) => {
-    const { paymentIntentId } = req.params
+// GET /api/billing/status/:linkId — polled by the frontend while the
+// checkout tab is open, in case the webhook hasn't arrived yet.
+router.get('/status/:linkId', async (req, res) => {
+    const { linkId } = req.params
     const { rows } = await pool.query(
-        `SELECT * FROM payments WHERE paymongo_payment_intent_id = $1 AND user_id = $2`,
-        [paymentIntentId, req.userId],
+        `SELECT * FROM payments WHERE paymongo_link_id = $1 AND user_id = $2`,
+        [linkId, req.userId],
     )
     if (!rows.length) return res.status(404).json({ error: 'Payment not found' })
     const payment = rows[0]
 
-    if (payment.status === 'paid') {
-        return res.json({ status: 'paid' })
-    }
+    if (payment.status === 'paid') return res.json({ status: 'paid' })
+    if (payment.status === 'failed') return res.json({ status: 'failed' })
 
     try {
-        const intent = await retrievePaymentIntent(paymentIntentId)
-        const pmStatus = intent.data.attributes.status
+        const link = await retrieveLink(linkId)
+        const linkStatus = link.data.attributes.status // 'unpaid' | 'paid'
 
-        if (pmStatus === 'succeeded') {
-            await applyPaidPlan(req.userId, payment.plan, paymentIntentId)
+        if (linkStatus === 'paid') {
+            await applyPaidPlan(req.userId, payment.plan, linkId)
             return res.json({ status: 'paid' })
         }
 

@@ -4,7 +4,7 @@ import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import Card from '../components/Card'
 import Button from '../components/Button'
-import QrCheckoutModal from '../components/QrCheckoutModal'
+import LinkCheckoutModal from '../components/LinkCheckoutModal'
 import { useAuth } from '../context/useAuth'
 import type { PayablePlanId } from '../lib/api'
 
@@ -83,7 +83,7 @@ export default function PricingPage() {
           STUDY MORE. <span className="text-kippo-pink">TYPE LESS.</span>
         </h1>
         <p className="mt-[15px] max-w-[480px] mx-auto font-mono text-[14px] leading-[1.7] text-ghost/60 text-center">
-          Pay with GCash, Maya, or any QR Ph app — scan and you're done.
+          Pay with GCash, Maya, cards, or QR Ph — one secure checkout link.
         </p>
 
         <div className="mt-[50px] grid sm:grid-cols-2 lg:grid-cols-4 gap-[15px]">
@@ -134,7 +134,7 @@ export default function PricingPage() {
       <Footer />
 
       {checkoutPlan && checkoutPlan.id !== 'free' && (
-        <QrCheckoutModal
+        <LinkCheckoutModal
           plan={checkoutPlan.id}
           planLabel={checkoutPlan.name}
           onClose={() => setCheckoutPlan(null)}
